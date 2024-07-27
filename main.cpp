@@ -1,36 +1,61 @@
 #include <iostream>
 #include <string>
+#include <memory>
+#include <thread>
 
 #include <boost/asio.hpp>
+#include <conn_handler.h>
 
 using namespace std;
 
-class server{
-    public:
-    void open_connection();
+class server_operations{
+public:
+    void start_server(domain_details domain);
+    bool server_status();
 
 
-    private:
-    boost::asio::io_context& ioc;
+    server_operations(boost::asio::io_context& context)
+    : server(context) {};
 
-    server()
-    :ioc(*(new boost::asio::io_context())) {};
+private:
+    server_engine server;
 
-    server(boost::asio::io_context& context)
-    :ioc(context){};
 };
+
+
+void server_operations::start_server(domain_details domain){
+
+    try{
+
+        server.open_listener(domain);
+
+    }  catch(const exception& e){
+
+        cout<<"Internal Server Error "<<e.what()<<endl;
+
+    };
+
+};
+
+
+
+bool server_operations::server_status(){
+
+    return server.get_server_status();
+
+};
+
+
 
 int main(){
 
-    server operands;
-
-    boost::system::error_code ec;
+    domain_details engine_domain = { "localhost", "8888" };
 
     boost::asio::io_context context;
 
-    boost::asio::executor_work_guard<boost::asio::io_context::executor_type> worik_guard(context.get_executor());
+    server_operations constructor(context);
 
-    operands(context);
+    constructor.start_server(engine_domain);
 
     context.run();
 
