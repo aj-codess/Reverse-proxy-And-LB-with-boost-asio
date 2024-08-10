@@ -11,20 +11,21 @@ using namespace std;
 
 
 class remote_server_operations{
+    private:
+    hook endpoint_hooks;
+
+
 public:
     void est_connections();
     bool get_status();
 
-    remote_server_operations(boost::asio::io_context context)
-    :endpoint_hooks(context), {};
-
-private:
-    hook endpoint_hooks;
+    remote_server_operations(boost::asio::io_context& context,std::vector<domain_details> endpoint_url,boost::asio::ssl::context& ssl_context)
+    : endpoint_hooks(context,endpoint_url,ssl_context) {}
 
 };
 
 
-void remote_server_operations::est_connections(std::vector<domain_details> hooks){
+void remote_server_operations::est_connections(){
 
     try{
 
@@ -39,9 +40,9 @@ void remote_server_operations::est_connections(std::vector<domain_details> hooks
 };
 
 
-bool remote_server_operation::get_status(){
+bool remote_server_operations::get_status(){
 
-    return endoint_hooks.get_hook_status();
+    return endpoint_hooks.get_hook_status();
 
 };
 
@@ -60,7 +61,7 @@ public:
 
 
     server_operations(boost::asio::io_context& context)
-    : server(context), {};
+    : server(context) {};
 
 private:
     server_engine server;
@@ -100,11 +101,19 @@ int main(){
 
     domain_details engine_domain = { "localhost", "8888" };
 
+    domain_details google_url={"google.com","80"};
+
+    std::vector<domain_details> endpoint;
+
+    endpoint.push_back(google_url);
+
     boost::asio::io_context context;
+
+    boost::asio::ssl::context ssl(boost::asio::ssl::context::tlsv12_client);
 
     server_operations server_constructor(context);
 
-    remote_server_operations hook_constructor(context);
+    remote_server_operations hook_constructor(context,endpoint,ssl);
 
     server_constructor.start_server(engine_domain);
 

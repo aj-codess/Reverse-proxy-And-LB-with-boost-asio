@@ -12,3 +12,9 @@ target_include_directories(main PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/dependency_di
 find_package(Boost)
 target_include_directories(main PUBLIC ${Boost_INCLUDE_DIR})
 target_link_libraries(main PUBLIC ${Boost_LIBRARIES} ${Boost_DEPENDENCIES})
+
+find_package(OpenSSL REQUIRED)
+target_include_directories(main PUBLIC ${OpenSSL_INCLUDE_DIR})
+target_link_libraries(main PRIVATE OpenSSL::SSL)
+target_link_libraries(main PRIVATE OpenSSL::Crypto)
+target_link_libraries(main PUBLIC ${OpenSSL_LIBRARIES} ${OpenSSL_DEPENDENCIES})
