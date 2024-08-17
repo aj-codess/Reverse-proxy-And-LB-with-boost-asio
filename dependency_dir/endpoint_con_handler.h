@@ -22,10 +22,12 @@
     struct connection_data {
     boost::asio::ssl::stream<boost::asio::ip::tcp::socket> ssl_socket;
     boost::asio::ip::tcp::resolver::results_type remote_endpoint;
+    bool isConnected;
+    domain_details domain;
 
     connection_data(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>&& socket, 
                     boost::asio::ip::tcp::resolver::results_type endpoint)
-        : ssl_socket(std::move(socket)), remote_endpoint(endpoint) {}
+        : ssl_socket(std::move(socket)), remote_endpoint(endpoint),isConnected(false) {}
 };
 
 
@@ -37,10 +39,9 @@
         boost::asio::ip::tcp::endpoint remote_endpoint;
         bool is_hooked_up;
         std::vector<domain_details> url_pool;
-        std::vector<connection_data> connections;
         bool make_endpoints();
         void connector();
-        std::string gen_id();
+        std::map<std::string,connection_data>;
 
         id_gen id;
 
@@ -84,7 +85,7 @@
 
 
 
-
+//refactor the true and false condition in this 
     bool hook::make_endpoints(){
 
         bool is_est=false;
@@ -100,6 +101,8 @@
                         if(endpoint.empty()){
 
                             is_est=false;
+
+                            
 
                         }  else{
 
@@ -117,7 +120,7 @@
 
 
 
-
+//make a map, generate an id to ref a hooked server 
     void hook::connector(){
 
         for(auto& conn : connections){
