@@ -6,6 +6,7 @@
     #include <map>
     #include <iterator>
     #include <chrono>
+    #include <algorithm>
 
     #include <boost/asio.hpp>
     #include <boost/asio/ssl.hpp>
@@ -39,11 +40,12 @@
         boost::asio::ip::tcp::endpoint remote_endpoint;
         bool is_hooked_up;
         std::vector<domain_details> url_pool;
-        bool make_endpoints();
+        void make_endpoints();
         void connector();
-        std::map<std::string,connection_data>;
+        std::map<std::string,connection_data> endpoint_pool;
+        std::string id;
 
-        id_gen id;
+        id_gen i_d;
 
     public:
 
@@ -71,65 +73,73 @@
 
     void hook::hook_up(){
 
-        if(this->make_endpoints()==true){
+         this->make_endpoints();
+
+        if( this->url_pool.size() > 0){
+
+            this->make_endpoints();
+             
+        } else{
 
             this->connector();
 
-        } else{
-
-            cout<<"endpoint server down "<<endl;
-
         };
 
     };
 
 
 
-//refactor the true and false condition in this 
-    bool hook::make_endpoints(){
+void hook::make_endpoints() {
 
-        bool is_est=false;
+    auto it = url_pool.begin();
 
-        for(int counter=0; counter < this->url_pool.size() ; counter++){
+    while (it != url_pool.end()) {
 
-                boost::asio::ip::tcp::socket socket(ioc);
+        boost::asio::ip::tcp::socket socket(ioc);
 
-                boost::asio::ssl::stream<boost::asio::ip::tcp::socket> ssl_socket(std::move(socket), ssl_ioc);
+        boost::asio::ssl::stream<boost::asio::ip::tcp::socket> ssl_socket(std::move(socket), ssl_ioc);
 
-                boost::asio::ip::tcp::resolver::results_type endpoint = addr_resolver.resolve(this->url_pool[counter].host_url, this->url_pool[counter].port);
+        boost::asio::ip::tcp::resolver::results_type endpoint = addr_resolver.resolve(it->host_url, it->port);
 
-                        if(endpoint.empty()){
+        std::string id = i_d.get_id();
 
-                            is_est=false;
+        if (endpoint.empty()) {
 
-                            
+            cout << "Error connecting to - " << it->host_url << endl;
 
-                        }  else{
+            ++it;
 
-                            connections.emplace_back(std::move(ssl_socket), endpoint);
+        } else {
 
-                            is_est=true;
+            endpoint_pool[id] = connection_data(std::move(ssl_socket), endpoint);
 
-                        }
+            endpoint_pool[id].isConnected = true;
 
-        };
+            endpoint_pool[id].domain.host_url = it->host_url;
 
-        return is_est;
+            endpoint_pool[id].domain.port = it->port;
 
-    };
+            it = url_pool.erase(it);  // Remove after successful connection
+
+            ++it;
+
+        }
+    }
+}
 
 
 
 //make a map, generate an id to ref a hooked server 
     void hook::connector(){
 
-        for(auto& conn : connections){
+        connection_data end_p=this->endpoint_pool[this->id];
+        
 
             try{
 
-                boost::asio::connect(conn.ssl_socket.lowest_layer(), conn.remote_endpoint);
+                boost::asio::connect(endpoint_pool[this->id].ssl_socket.lowest_layer(), endpoint_pool[this->id].remote_endpoint);
 
-                conn.ssl_socket.handshake(boost::asio::ssl::stream_base::client);
+                endpoint_pool[this->id].ssl_socket.handshake(boost::asio::ssl::stream_base::client);
 
             } catch(const exception& e){
 
@@ -137,6 +147,6 @@
 
             }
 
-        };
+    
 
     };

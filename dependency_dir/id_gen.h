@@ -16,7 +16,8 @@ class id_gen{
     public:
     std::string get_id();
 
-};
+} id_engine;
+
 
 
 std::string  id_gen::get_id(){
