@@ -5,7 +5,12 @@
 #include <memory>
 #include <thread>
 
+#include <req_handler.h>
+
 #include <boost/asio.hpp>
+#include <boost/asio/spawn.hpp>
+#include <boost/coroutine/all.hpp>
+#include <boost/beast.hpp>
 
 using namespace std;
 
@@ -18,6 +23,7 @@ struct domain_details {
 
 class server_engine{
 private:
+    req_engine req_handler;
     boost::asio::io_context& ioc;
     boost::asio::ip::tcp::acceptor con_acceptor;
     boost::asio::ip::tcp::resolver endpoint_resolver;
@@ -25,6 +31,7 @@ private:
     bool isOpen;
     void accept();
     void socket_grabber();
+    void handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket,boost::asio::yield_context yield);
 
 public:
     server_engine(boost::asio::io_context& context)
@@ -97,6 +104,12 @@ void server_engine::socket_grabber(){
 
                 cout<<"client connection Acknoledged with ip - "<<socket->remote_endpoint()<<endl;
 
+                boost::asio::spawn(con_acceptor.get_executor(),[this,socket](boost::asio::yield_context yield){
+
+                    this->handler(socket,yield);
+
+                });
+
             };
 
             this->socket_grabber();
@@ -114,3 +127,60 @@ void server_engine::socket_grabber(){
     });
 
 };
+
+
+
+void server_engine::handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket,boost::asio::yield_context yield){
+
+    boost::beast::tcp_stream stream_socket(std::move(socket));
+
+    for(;;){
+        bool isDisconnected=false;
+
+        try{
+
+            boost::beast::flat_buffer buffer;
+
+            boost::beast::http::request<boost::beast::http::string_body> req;
+
+            boost::beast::http::response<boost::beast::http::string_body> res;
+
+            boost::beast::http::async_read(stream_socket,buffer,req,yield);
+
+            this->req_handler.request_structure(req,res);
+
+            boost::beast::http::async_write(stream_socket,res,yield);
+
+            if (req.need_eof()) {
+
+                boost::beast::error_code shutdown_ec;
+
+                stream_socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, shutdown_ec);
+
+                isDisconnected = true;
+
+                if (shutdown_ec) {
+
+                    cout << "Error shutting down: " << shutdown_ec.message() << endl;
+
+                }
+
+                break;
+            }
+
+        } catch(const std::exception e){
+
+            cout<<"error reading and writing"<<endl;
+
+            cout<<e.what()<<endl;
+
+        };
+
+        if(isDisconnected==true){
+
+            break;
+
+        };
+
+    };
+}
