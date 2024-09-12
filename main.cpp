@@ -12,7 +12,7 @@ using namespace std;
 
 class remote_server_operations{
     private:
-    hook endpoint_hooks;
+    hook endpoint_hooker;
 
 
 public:
@@ -20,7 +20,7 @@ public:
     bool get_status();
 
     remote_server_operations(boost::asio::io_context& context,std::vector<domain_details> endpoint_url,boost::asio::ssl::context& ssl_context)
-    : endpoint_hooks(context,endpoint_url,ssl_context) {}
+    : endpoint_hooker(context,endpoint_url,ssl_context) {};
 
 };
 
@@ -29,7 +29,7 @@ void remote_server_operations::est_connections(){
 
     try{
 
-        endpoint_hooks.hook_up();
+        endpoint_hooker.hook_init();
 
     } catch(const exception& e){
 
@@ -42,13 +42,9 @@ void remote_server_operations::est_connections(){
 
 bool remote_server_operations::get_status(){
 
-    return endpoint_hooks.get_hook_status();
+    return true;
 
 };
-
-
-
-
 
 
 
@@ -90,7 +86,6 @@ bool server_operations::server_status(){
     return server.get_server_status();
 
 };
-
 
 
 

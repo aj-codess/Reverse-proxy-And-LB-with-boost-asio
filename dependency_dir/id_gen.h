@@ -20,7 +20,7 @@ class id_gen{
 
 
 
-std::string  id_gen::get_id(){
+std::string id_gen::get_id(){
 
     mutual_ex.lock();
 

@@ -6,6 +6,7 @@
 #include <thread>
 
 #include <req_handler.h>
+#include <endpoint_con_handler.h>
 
 #include <boost/asio.hpp>
 #include <boost/asio/spawn.hpp>
@@ -13,12 +14,6 @@
 #include <boost/beast.hpp>
 
 using namespace std;
-
-
-struct domain_details {
-    std::string host_url;
-    std::string port;
-};
 
 
 class server_engine{
