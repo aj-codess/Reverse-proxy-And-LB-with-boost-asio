@@ -22,15 +22,22 @@
 };
 
 
-    struct connection_data {
-    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> ssl_socket;
+ struct connection_data {
+    std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> ssl_socket;
     boost::asio::ip::tcp::resolver::results_type resolver_endpoint_pool;
     domain_details domain;
 
-    connection_data(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>&& socket, 
+    // Default constructor
+    connection_data()
+        : ssl_socket(nullptr) {}  // Initialize ssl_socket with nullptr
+
+    // Constructor with parameters
+    connection_data(boost::asio::ssl::context& ssl_ioc, boost::asio::io_context& ioc, 
                     boost::asio::ip::tcp::resolver::results_type endpoint, domain_details dmn)
-        : ssl_socket(std::move(socket)), resolver_endpoint_pool(endpoint),domain(dmn) {}
+        : ssl_socket(std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(ioc, ssl_ioc)), 
+          resolver_endpoint_pool(endpoint), domain(dmn) {}
 };
+
 
 
 struct ext_data{
@@ -119,23 +126,20 @@ void hook::make_endpoints(domain_details endP_struct) {
 
             if(check_data.isFound==true){
 
-                connection_data mapper(std::move(ssl_socket),endpoint_pool,endP_struct);
-
-                this->servers[check_data.id]=std::move(mapper);
+                this->servers.emplace(check_data.id, connection_data(ssl_ioc, ioc, endpoint_pool, endP_struct));
 
             } else{
 
                 std::string new_id = i_d.get_id();
 
-                connection_data mapper(std::move(ssl_socket), endpoint_pool, endP_struct);
-
-                this->servers[new_id] = std::move(mapper);
+                this->servers.emplace(new_id, connection_data(ssl_ioc, ioc, endpoint_pool, endP_struct));
 
             };
 
         };
 
     };
+
 
 
 

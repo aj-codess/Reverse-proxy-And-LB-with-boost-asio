@@ -127,7 +127,7 @@ void server_engine::socket_grabber(){
 
 void server_engine::handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket,boost::asio::yield_context yield){
 
-    boost::beast::tcp_stream stream_socket(std::move(socket));
+    boost::beast::tcp_stream stream_socket(std::move(*./socket));
 
     for(;;){
         bool isDisconnected=false;
