@@ -23,20 +23,16 @@
 
 
  struct connection_data {
-    std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> ssl_socket;
     std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool;
     domain_details domain;
     short rating;
 
-    // Default constructor
-    connection_data()
-        : ssl_socket(nullptr) {}  // Initialize ssl_socket with nullptr
+        connection_data() 
+        : rating(0) {}
 
     // Constructor with parameters
-    connection_data(boost::asio::ssl::context& ssl_ioc, boost::asio::io_context& ioc, 
-                    std::vector<boost::asio::ip::tcp::endpoint> endpoint, domain_details dmn)
-        : ssl_socket(std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(ioc, ssl_ioc)), 
-         endpoint_pool(endpoint), domain(dmn),rating(0) {}
+    connection_data(std::vector<boost::asio::ip::tcp::endpoint> endpoint, domain_details dmn)
+        : endpoint_pool(endpoint), domain(dmn),rating(0) {}
 };
 
 
@@ -59,6 +55,7 @@ class hook{
         std::map<std::string,connection_data> servers;
         void connector(std::string id);
         boost::asio::ip::tcp::endpoint select_endP(std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool,domain_details domain);
+        std::string check;
 
         id_gen i_d;
 
@@ -104,6 +101,8 @@ class hook{
             this->make_endpoints(this->url_pool.at(i));
         };
 
+        this->connector(this->check);
+
     };
 
 
@@ -132,13 +131,14 @@ void hook::make_endpoints(domain_details endP_struct) {
                     endpoint.push_back(it->endpoint());
                 };
 
-                this->servers.emplace(check_data.id, connection_data(ssl_ioc, ioc, endpoint, endP_struct));
+                this->servers.emplace(check_data.id, connection_data(endpoint, endP_struct));
 
             } else{
 
                 std::string new_id = i_d.get_id();
+                this->check=new_id;
 
-                this->servers.emplace(new_id, connection_data(ssl_ioc, ioc, endpoint, endP_struct));
+                this->servers.emplace(new_id, connection_data(endpoint, endP_struct));
 
             };
 
@@ -151,32 +151,30 @@ void hook::make_endpoints(domain_details endP_struct) {
 void hook::connector(std::string id){
     boost::system::error_code ec;
 
+    auto stream_socket=std::make_shared<boost::beast::tcp_stream>(boost::asio::make_strand(ioc));
+
+    boost::beast::flat_buffer buffer;
+
+    boost::beast::http::request<boost::beast::http::empty_body> req;
+
+    boost::beast::http::response<boost::beast::http::string_body> res;
+
     boost::asio::ip::tcp::endpoint endP = this->select_endP(servers[id].endpoint_pool, servers[id].domain);
 
-    //boost::beast::get_lowest_layer(*this->servers[id].ssl_socket).expires_after(std::chrono::seconds(30));
+    stream_socket->expires_after(std::chrono::seconds(30));
 
-    boost::beast::get_lowest_layer(*this->servers[id].ssl_socket).expires_after(std::chrono::seconds(30))
-
-    boost::beast::get_lowest_layer(*this->servers[id].ssl_socket).async_connect(endP, [this, id](boost::system::error_code ec) {
+    stream_socket->async_connect(endP, [this, id,stream_socket](boost::system::error_code ec) {
         if (!ec) {
             std::cout << "Connected to server!" << std::endl;
 
-            // Perform SSL handshake after successful TCP connection
-            this->servers[id].ssl_socket->async_handshake(boost::asio::ssl::stream_base::client, [this, id](boost::system::error_code ec) {
-                if (!ec) {
-                    std::cout << "SSL Handshake successful!" << std::endl;
-                } else {
-                    std::cout << "SSL Handshake failed: " << ec.message() << std::endl;
-                    this->connector(id);  // Retry the connection on handshake failure
-                }
-            });
+            
 
         } else {
             std::cout << "Error connecting: " << ec.message() << std::endl;
             this->connector(id);  // Retry the connection on failure
         }
     });
-}
+};
 
 
 

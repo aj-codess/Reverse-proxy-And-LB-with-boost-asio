@@ -96,7 +96,7 @@ int main(){
 
     domain_details engine_domain = { "localhost", "8888" };
 
-    domain_details google_url={"google.com","80"};
+    domain_details google_url={"localhost","8080"};
 
     std::vector<domain_details> endpoint;
 
