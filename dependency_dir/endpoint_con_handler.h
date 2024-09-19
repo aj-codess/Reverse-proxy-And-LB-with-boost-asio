@@ -11,10 +11,11 @@
     #include <boost/asio.hpp>
     #include <boost/asio/ssl.hpp>
     #include <boost/asio/ssl/stream.hpp>
+    #include <boost/beast.hpp>
+    
     #include <id_gen.h>
 
     using namespace std;
-
 
     struct domain_details {
     std::string host_url;
@@ -53,10 +54,8 @@ class hook{
         void make_endpoints(domain_details endP_struct);
         ext_data check_existance(std::string url);
         std::map<std::string,connection_data> servers;
-        void connector(std::string id);
         boost::asio::ip::tcp::endpoint select_endP(std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool,domain_details domain);
         std::string check;
-
         id_gen i_d;
 
     public:
@@ -71,7 +70,8 @@ class hook{
         };
 
         void hook_init();
-
+        std::string overide_server();
+        void connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res);
     };
 
 
@@ -101,7 +101,7 @@ class hook{
             this->make_endpoints(this->url_pool.at(i));
         };
 
-        this->connector(this->check);
+        //this->connector(this->check);
 
     };
 
@@ -148,32 +148,76 @@ void hook::make_endpoints(domain_details endP_struct) {
 
 
 
-void hook::connector(std::string id){
-    boost::system::error_code ec;
 
+void hook::connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res){
+    boost::system::error_code ec;
+    
     auto stream_socket=std::make_shared<boost::beast::tcp_stream>(boost::asio::make_strand(ioc));
 
-    boost::beast::flat_buffer buffer;
+    boost::beast::flat_buffer read_buffer;
 
-    boost::beast::http::request<boost::beast::http::empty_body> req;
+    boost::beast::http::request<boost::beast::http::string_body> con_req;
 
-    boost::beast::http::response<boost::beast::http::string_body> res;
+    boost::beast::http::response<boost::beast::http::string_body> con_res;
 
     boost::asio::ip::tcp::endpoint endP = this->select_endP(servers[id].endpoint_pool, servers[id].domain);
 
     stream_socket->expires_after(std::chrono::seconds(30));
 
-    stream_socket->async_connect(endP, [this, id,stream_socket](boost::system::error_code ec) {
-        if (!ec) {
-            std::cout << "Connected to server!" << std::endl;
+    try {
+        stream_socket->async_connect(endP, [this, id, stream_socket,&read_buffer,con_req, con_res](boost::system::error_code ec) {
+            if (!ec) {
+                std::cout << "Connected to server!" << std::endl;
 
-            
+                stream_socket->expires_after(std::chrono::seconds(30));
 
-        } else {
-            std::cout << "Error connecting: " << ec.message() << std::endl;
-            this->connector(id);  // Retry the connection on failure
-        }
-    });
+                boost::beast::http::async_write(*stream_socket,con_req,
+                    [this, id, stream_socket,&read_buffer,con_req,con_res](boost::system::error_code ec, std::size_t bytes_transferred) {
+                        boost::ignore_unused(bytes_transferred);
+                        
+                        if (!ec) {
+
+                            read_buffer.clear();
+
+                            boost::beast::http::async_read(*stream_socket,read_buffer,con_res,[this,id,con_res](boost::system::error_code ec,std::size_t transfered_size){
+                                boost::ignore_unused(transfered_size);
+
+                                if(!ec){
+                                    //success
+                                } else{
+                                    //failure
+                                };
+
+                            });
+
+                            if (con_req.need_eof()) {
+
+                                boost::beast::error_code shutdown_ec;
+
+                                stream_socket->socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, shutdown_ec);
+
+                                if(shutdown_ec) {
+
+                                    cout << "Error shutting down: " << shutdown_ec.message() << endl;
+
+                                }
+                            };
+
+                        } else {
+                            std::cout << "Error writing: " << ec.message() << std::endl;
+                            // Retry the connection on failure
+                        }
+                    }
+                );
+            } else {
+                std::cout << "Error connecting: " << ec.message() << std::endl;
+                // Retry the connection on failure
+            }
+        });
+    } catch (const std::exception& e) {
+        std::cout << "Error with read and write: " << e.what() << std::endl;
+    }
+
 };
 
 
@@ -191,4 +235,12 @@ boost::asio::ip::tcp::endpoint hook::select_endP(std::vector<boost::asio::ip::tc
     endpoint_pool.erase(endpoint_pool.begin());
 
     return to_return;
+};
+
+
+
+std::string hook::overide_server(){
+
+
+    return ("this is the id");
 };

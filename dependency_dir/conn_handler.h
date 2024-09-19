@@ -2,10 +2,11 @@
 
 #include <iostream>
 #include <string>
+#include <vector>
 #include <memory>
 #include <thread>
 
-#include <req_handler.h>
+#include <rewriter.h>
 #include <endpoint_con_handler.h>
 
 #include <boost/asio.hpp>
@@ -18,7 +19,8 @@ using namespace std;
 
 class server_engine{
 private:
-    req_engine req_handler;
+    rewriter url_resolver;
+    hook endPHook;
     boost::asio::io_context& ioc;
     boost::asio::ip::tcp::acceptor con_acceptor;
     boost::asio::ip::tcp::resolver endpoint_resolver;
@@ -29,8 +31,16 @@ private:
     void handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket,boost::asio::yield_context yield);
 
 public:
-    server_engine(boost::asio::io_context& context)
-    : ioc(context),endpoint_resolver(context), con_acceptor(context), isOpen(false) {};
+    server_engine(boost::asio::io_context& context,std::vector<domain_details> endpoint_url,boost::asio::ssl::context& ssl_context)
+    : ioc(context),endpoint_resolver(context), con_acceptor(context), isOpen(false), url_resolver(),endPHook(context,endpoint_url,ssl_context) {
+        
+        try{
+            endPHook.hook_init();
+        } catch(const exception& e){
+            cout<<"there was an error connecting - "<<e.what()<<endl;
+        };
+
+    }
 
 
     bool get_server_status(){
@@ -142,7 +152,13 @@ void server_engine::handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket
 
             boost::beast::http::async_read(stream_socket,buffer,req,yield);
 
-            this->req_handler.request_structure(req,res);
+            this->url_resolver.req_resolve(req,res);
+
+            this->endPHook.connector(this->endPHook.overide_server(),req,res);
+
+            res.keep_alive();
+
+            res.prepare_payload();
 
             boost::beast::http::async_write(stream_socket,res,yield);
 
