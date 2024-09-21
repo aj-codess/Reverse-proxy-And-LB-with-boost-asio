@@ -1,7 +1,11 @@
     #pragma once
 
+    #define SAFETY 50
+    #define T_PERCENT 100
+
     #include <iostream>
     #include <string>
+    #include <mutex>
     #include <memory>
     #include <map>
     #include <iterator>
@@ -27,6 +31,7 @@
     std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool;
     domain_details domain;
     short rating;
+    short percentage;
 
         connection_data() 
         : rating(0) {}
@@ -46,6 +51,7 @@ struct ext_data{
 
 class hook{
     private:
+        std::mutex mtx;
         boost::asio::ssl::context& ssl_ioc;
         boost::asio::io_context& ioc;
         boost::asio::ip::tcp::resolver addr_resolver;
@@ -57,6 +63,10 @@ class hook{
         boost::asio::ip::tcp::endpoint select_endP(std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool,domain_details domain);
         std::string check;
         id_gen i_d;
+        void limit_check();
+
+        std::string round_robin();
+        std::string least_connection();
 
     public:
 
@@ -70,7 +80,7 @@ class hook{
         };
 
         void hook_init();
-        std::string overide_server();
+        std::string overide_server(std::string algo);
         void connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res);
     };
 
@@ -152,71 +162,102 @@ void hook::make_endpoints(domain_details endP_struct) {
 void hook::connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res){
     boost::system::error_code ec;
     
-    auto stream_socket=std::make_shared<boost::beast::tcp_stream>(boost::asio::make_strand(ioc));
+     struct Con {
+        boost::beast::tcp_stream stream_socket;
+        std::string id;
+        boost::beast::flat_buffer read_buffer = {};
+        boost::beast::http::request<boost::beast::http::string_body> con_req = {};
+        boost::beast::http::response<boost::beast::http::string_body> con_res = {};
+    };
 
-    boost::beast::flat_buffer read_buffer;
+    auto state = std::make_shared<Con>(Con{boost::beast::tcp_stream{make_strand(ioc)}, id});
 
-    boost::beast::http::request<boost::beast::http::string_body> con_req;
+    auto merge_req=[&req](boost::beast::http::request<boost::beast::http::string_body>& state_req){
 
-    boost::beast::http::response<boost::beast::http::string_body> con_res;
+        state_req.method(req.method());
+        state_req.target(req.target());
+        state_req.version(req.version());
+
+        auto host_field = req.find(boost::beast::http::field::host);
+
+        if (host_field != req.end()) {
+
+            std::string host = host_field->value();
+            state_req.set(boost::beast::http::field::host,host);
+
+        };
+
+
+    };
+
+    merge_req(state->con_req);
 
     boost::asio::ip::tcp::endpoint endP = this->select_endP(servers[id].endpoint_pool, servers[id].domain);
 
-    stream_socket->expires_after(std::chrono::seconds(30));
+    state->stream_socket.expires_after(std::chrono::seconds(30));
 
     try {
-        stream_socket->async_connect(endP, [this, id, stream_socket,&read_buffer,con_req, con_res](boost::system::error_code ec) {
-            if (!ec) {
-                std::cout << "Connected to server!" << std::endl;
+        state->stream_socket.async_connect(
+            endP, [state, id](boost::system::error_code ec) {
+                if (!ec) {
+                    std::cout << "Connected to server!" << std::endl;
 
-                stream_socket->expires_after(std::chrono::seconds(30));
+                    state->stream_socket.expires_after(std::chrono::seconds(30));
 
-                boost::beast::http::async_write(*stream_socket,con_req,
-                    [this, id, stream_socket,&read_buffer,con_req,con_res](boost::system::error_code ec, std::size_t bytes_transferred) {
-                        boost::ignore_unused(bytes_transferred);
-                        
-                        if (!ec) {
+                    boost::beast::http::async_write(
+                        state->stream_socket, state->con_req,
+                        [id, state](boost::beast::error_code ec, size_t bytes_transferred) mutable {
+                            boost::ignore_unused(bytes_transferred);
 
-                            read_buffer.clear();
+                            if (!ec) {
 
-                            boost::beast::http::async_read(*stream_socket,read_buffer,con_res,[this,id,con_res](boost::system::error_code ec,std::size_t transfered_size){
-                                boost::ignore_unused(transfered_size);
+                                state->read_buffer.clear();
 
-                                if(!ec){
-                                    //success
-                                } else{
-                                    //failure
+                                // error is being raised from this snippet
+                                boost::beast::http::async_read(
+                                    state->stream_socket, state->read_buffer, state->con_res,
+                                    [state, id](boost::beast::error_code ec, size_t transfered_size) mutable {
+                                        boost::ignore_unused(transfered_size);
+
+                                        if (ec) {
+                                            cout<<"error reading from remote Server - "<<ec.message()<<endl;
+                                        };
+
+                                    });
+
+                                if (state->con_req.need_eof()) {
+
+                                    boost::beast::error_code shutdown_ec;
+
+                                    state->stream_socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send,
+                                                                           shutdown_ec);
+
+                                    if (shutdown_ec) {
+                                        std::cout << "Error shutting down: " << shutdown_ec.message()
+                                                  << std::endl;
+                                    }
                                 };
 
-                            });
-
-                            if (con_req.need_eof()) {
-
-                                boost::beast::error_code shutdown_ec;
-
-                                stream_socket->socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, shutdown_ec);
-
-                                if(shutdown_ec) {
-
-                                    cout << "Error shutting down: " << shutdown_ec.message() << endl;
-
-                                }
-                            };
-
-                        } else {
-                            std::cout << "Error writing: " << ec.message() << std::endl;
-                            // Retry the connection on failure
-                        }
-                    }
-                );
-            } else {
-                std::cout << "Error connecting: " << ec.message() << std::endl;
-                // Retry the connection on failure
-            }
-        });
-    } catch (const std::exception& e) {
+                            } else {
+                                std::cout << "Error writing: " << ec.message() << std::endl;
+                                // Retry the connection on failure
+                            }
+                        });
+                } else {
+                    std::cout << "Error connecting: " << ec.message() << std::endl;
+                    // Retry the connection on failure
+                }
+            });
+    } catch (std::exception const& e) {
         std::cout << "Error with read and write: " << e.what() << std::endl;
     }
+
+
+    auto merge_res=[&res](boost::beast::http::response<boost::beast::http::string_body>& state_res){
+            res=state_res;
+    };
+
+    merge_res(state->con_res);
 
 };
 
@@ -239,8 +280,40 @@ boost::asio::ip::tcp::endpoint hook::select_endP(std::vector<boost::asio::ip::tc
 
 
 
-std::string hook::overide_server(){
+std::string hook::overide_server(std::string algo){
+    std::string id;
 
+    if(algo=="round_robin"){
+        id=this->round_robin();
+    } else if(algo=="least_connection"){
+        id=this->least_connection();
+    };
 
-    return ("this is the id");
+    return id;
 };
+
+
+
+void hook::limit_check(){
+
+    // if(num>std::numeric_limits<short>::max()-SAFETY){
+
+
+
+    // }
+};
+
+
+
+std::string hook::round_robin(){
+    std::lock_guard<std::mutex> locker(mtx);
+
+
+};
+
+
+
+std::string hook::least_connection(){
+    std::lock_guard<std::mutex> locker(mtx);
+
+}

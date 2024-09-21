@@ -154,7 +154,7 @@ void server_engine::handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket
 
             this->url_resolver.req_resolve(req,res);
 
-            this->endPHook.connector(this->endPHook.overide_server(),req,res);
+            this->endPHook.connector(this->endPHook.overide_server("round_robin"),req,res);
 
             res.keep_alive();
 
