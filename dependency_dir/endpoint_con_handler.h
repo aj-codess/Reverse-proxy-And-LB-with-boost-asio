@@ -308,7 +308,7 @@ void hook::limit_check(){
 std::string hook::round_robin(){
     std::lock_guard<std::mutex> locker(mtx);
 
-
+    return this->check;
 };
 
 
@@ -316,4 +316,5 @@ std::string hook::round_robin(){
 std::string hook::least_connection(){
     std::lock_guard<std::mutex> locker(mtx);
 
+    return "the fuck";
 }

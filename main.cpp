@@ -53,11 +53,11 @@ int main(){
 
     domain_details engine_domain = { "localhost", "8888" };
 
-    domain_details google_url={"localhost","8080"};
+    domain_details beryl_id_engine={"localhost","8080"};
 
     std::vector<domain_details> endpoint;
 
-    endpoint.push_back(google_url);
+    endpoint.push_back(beryl_id_engine);
 
     boost::asio::io_context context;
 
