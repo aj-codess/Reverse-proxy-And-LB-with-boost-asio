@@ -154,16 +154,18 @@ void server_engine::handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket
 
             this->url_resolver.req_resolve(req,res);
 
-            this->endPHook.connector(this->endPHook.overide_server("round_robin"),req,res);
+            this->endPHook.connector(this->endPHook.overide_server("round_robin"),req,res,[&](){
 
-            res.keep_alive();
+                res.keep_alive();
 
-            res.prepare_payload();
+                res.prepare_payload();
 
-            boost::beast::http::async_write(stream_socket,res,yield);
+                boost::beast::http::async_write(stream_socket,res,yield);
+
+            });
 
             if (req.need_eof()) {
-
+cout<<"response - "<<res.body()<<endl;
                 boost::beast::error_code shutdown_ec;
 
                 stream_socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, shutdown_ec);
@@ -175,7 +177,9 @@ void server_engine::handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket
                 }
 
                 break;
-            }
+            };
+
+            cout<<"response from endpoint server - "<<res.body()<<endl;
 
         } catch(const std::exception e){
 

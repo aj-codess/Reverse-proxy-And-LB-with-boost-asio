@@ -21,4 +21,4 @@ class rewriter{
 
 void rewriter::req_resolve(boost::beast::http::request<boost::beast::http::string_body>& req,boost::beast::http::response<boost::beast::http::string_body>& res){
 
-}
+};

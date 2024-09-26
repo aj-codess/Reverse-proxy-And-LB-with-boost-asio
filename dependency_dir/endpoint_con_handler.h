@@ -28,7 +28,7 @@
 
 
  struct connection_data {
-    std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool;
+    boost::asio::ip::tcp::resolver::results_type endP_resolver;
     domain_details domain;
     short rating;
     short percentage;
@@ -37,8 +37,8 @@
         : rating(0) {}
 
     // Constructor with parameters
-    connection_data(std::vector<boost::asio::ip::tcp::endpoint> endpoint, domain_details dmn)
-        : endpoint_pool(endpoint), domain(dmn),rating(0) {}
+    connection_data(boost::asio::ip::tcp::resolver::results_type resolver, domain_details dmn)
+        : endP_resolver(resolver), domain(dmn),rating(0) {}
 };
 
 
@@ -60,7 +60,7 @@ class hook{
         void make_endpoints(domain_details endP_struct);
         ext_data check_existance(std::string url);
         std::map<std::string,connection_data> servers;
-        boost::asio::ip::tcp::endpoint select_endP(std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool,domain_details domain);
+        boost::asio::ip::tcp::endpoint select_endP(boost::asio::ip::tcp::resolver::results_type endpoint_pool,domain_details domain);
         std::string check;
         id_gen i_d;
         void limit_check();
@@ -81,7 +81,8 @@ class hook{
 
         void hook_init();
         std::string overide_server(std::string algo);
-        void connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res);
+        void connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req,
+        boost::beast::http::response<boost::beast::http::string_body>& res, std::function<void()> callback);
     };
 
 
@@ -121,8 +122,6 @@ void hook::make_endpoints(domain_details endP_struct) {
 
         boost::asio::ip::tcp::resolver::results_type endpoint_pool = addr_resolver.resolve(endP_struct.host_url,endP_struct.port);
 
-        std::vector<boost::asio::ip::tcp::endpoint> endpoint;
-
         if (endpoint_pool.empty()) {
 
             cout<<"error resolving ip for the endpoint "<<endl;
@@ -137,18 +136,14 @@ void hook::make_endpoints(domain_details endP_struct) {
 
             if(check_data.isFound==true){
 
-                for(auto it=endpoint_pool.begin();it != endpoint_pool.end();++it){
-                    endpoint.push_back(it->endpoint());
-                };
-
-                this->servers.emplace(check_data.id, connection_data(endpoint, endP_struct));
+                this->servers.emplace(check_data.id, connection_data(std::move(endpoint_pool), endP_struct));
 
             } else{
 
                 std::string new_id = i_d.get_id();
                 this->check=new_id;
 
-                this->servers.emplace(new_id, connection_data(endpoint, endP_struct));
+                this->servers.emplace(new_id, connection_data(std::move(endpoint_pool), endP_struct));
 
             };
 
@@ -159,7 +154,7 @@ void hook::make_endpoints(domain_details endP_struct) {
 
 
 
-void hook::connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res){
+void hook::connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res, std::function<void()> callback){
     boost::system::error_code ec;
     
      struct Con {
@@ -170,7 +165,7 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
         boost::beast::http::response<boost::beast::http::string_body> con_res = {};
     };
 
-    auto state = std::make_shared<Con>(Con{boost::beast::tcp_stream{make_strand(ioc)}, id});
+    auto state = std::make_shared<Con>(Con{boost::beast::tcp_stream{boost::asio::make_strand(ioc)}, id});
 
     auto merge_req=[&req](boost::beast::http::request<boost::beast::http::string_body>& state_req){
 
@@ -192,13 +187,15 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
 
     merge_req(state->con_req);
 
-    boost::asio::ip::tcp::endpoint endP = this->select_endP(servers[id].endpoint_pool, servers[id].domain);
+    boost::asio::ip::tcp::endpoint endP = this->select_endP(servers[id].endP_resolver, servers[id].domain);
+
+    cout<<"endpoint - "<<endP<<endl;
 
     state->stream_socket.expires_after(std::chrono::seconds(30));
 
     try {
         state->stream_socket.async_connect(
-            endP, [state, id](boost::system::error_code ec) {
+            endP, [state, id,&res](boost::system::error_code ec) {
                 if (!ec) {
                     std::cout << "Connected to server!" << std::endl;
 
@@ -206,7 +203,7 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
 
                     boost::beast::http::async_write(
                         state->stream_socket, state->con_req,
-                        [id, state](boost::beast::error_code ec, size_t bytes_transferred) mutable {
+                        [id, state,&res](boost::beast::error_code ec, size_t bytes_transferred) mutable {
                             boost::ignore_unused(bytes_transferred);
 
                             if (!ec) {
@@ -216,12 +213,19 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
                                 // error is being raised from this snippet
                                 boost::beast::http::async_read(
                                     state->stream_socket, state->read_buffer, state->con_res,
-                                    [state, id](boost::beast::error_code ec, size_t transfered_size) mutable {
+                                    [state, id,&res](boost::beast::error_code ec, size_t transfered_size) mutable {
                                         boost::ignore_unused(transfered_size);
 
                                         if (ec) {
                                             cout<<"error reading from remote Server - "<<ec.message()<<endl;
                                         };
+
+                                            auto merge_res=[&res](boost::beast::http::response<boost::beast::http::string_body>& state_res){
+                                                    res.version(state_res.version());
+                                                    res.body()=state_res.body();
+                                            };
+
+                                            merge_res(state->con_res);
 
                                     });
 
@@ -250,30 +254,36 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
             });
     } catch (std::exception const& e) {
         std::cout << "Error with read and write: " << e.what() << std::endl;
-    }
-
-
-    auto merge_res=[&res](boost::beast::http::response<boost::beast::http::string_body>& state_res){
-            res=state_res;
     };
+    
 
-    merge_res(state->con_res);
+    if(callback){
+        try{
+
+            callback();
+
+        } catch(const std::exception& e){
+            cout<<"Error with write Callback - "<<e.what()<<endl;
+        }
+    }
 
 };
 
 
 
 
-boost::asio::ip::tcp::endpoint hook::select_endP(std::vector<boost::asio::ip::tcp::endpoint> endpoint_pool,domain_details domain){
+boost::asio::ip::tcp::endpoint hook::select_endP(boost::asio::ip::tcp::resolver::results_type endpoint_pool,domain_details domain){
     boost::asio::ip::tcp::endpoint to_return;
 
-    if(endpoint_pool.empty()){
-        this->make_endpoints(domain);
-    } else{
-        to_return=*endpoint_pool.begin();
-    };
+    // if(endpoint_pool.empty()){
+    //     this->make_endpoints(domain);
+    // } else{
+    //     to_return=*endpoint_pool.begin();
+    // };
 
-    endpoint_pool.erase(endpoint_pool.begin());
+    // endpoint_pool.erase(endpoint_pool.begin());
+
+    to_return=*endpoint_pool.begin();
 
     return to_return;
 };
