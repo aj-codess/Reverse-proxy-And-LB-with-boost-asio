@@ -11,7 +11,7 @@
 
 class rewriter{
     public:
-    void req_resolve(boost::beast::http::request<boost::beast::http::string_body>& req,boost::beast::http::response<boost::beast::http::string_body>& res);
+    void req_resolve(boost::beast::http::request<boost::beast::http::string_body>& req);
 
     private:
 
@@ -19,6 +19,6 @@ class rewriter{
 
 
 
-void rewriter::req_resolve(boost::beast::http::request<boost::beast::http::string_body>& req,boost::beast::http::response<boost::beast::http::string_body>& res){
+void rewriter::req_resolve(boost::beast::http::request<boost::beast::http::string_body>& req){
 
 };

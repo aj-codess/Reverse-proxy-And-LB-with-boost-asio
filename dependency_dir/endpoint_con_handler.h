@@ -1,8 +1,5 @@
     #pragma once
 
-    #define SAFETY 50
-    #define T_PERCENT 100
-
     #include <iostream>
     #include <string>
     #include <mutex>
@@ -30,15 +27,14 @@
  struct connection_data {
     boost::asio::ip::tcp::resolver::results_type endP_resolver;
     domain_details domain;
-    short rating;
-    short percentage;
+    int rating;
 
         connection_data() 
         : rating(0) {}
 
     // Constructor with parameters
     connection_data(boost::asio::ip::tcp::resolver::results_type resolver, domain_details dmn)
-        : endP_resolver(resolver), domain(dmn),rating(0) {}
+        : endP_resolver(resolver), domain(dmn) {}
 };
 
 
@@ -51,6 +47,7 @@ struct ext_data{
 
 class hook{
     private:
+        int current_server_pos;
         std::mutex mtx;
         boost::asio::ssl::context& ssl_ioc;
         boost::asio::io_context& ioc;
@@ -60,10 +57,10 @@ class hook{
         void make_endpoints(domain_details endP_struct);
         ext_data check_existance(std::string url);
         std::map<std::string,connection_data> servers;
-        boost::asio::ip::tcp::endpoint select_endP(boost::asio::ip::tcp::resolver::results_type endpoint_pool,domain_details domain);
-        std::string check;
         id_gen i_d;
         void limit_check();
+        void get_active();
+        std::vector<std::string> member_servers;
 
         std::string round_robin();
         std::string least_connection();
@@ -81,8 +78,18 @@ class hook{
 
         void hook_init();
         std::string overide_server(std::string algo);
-        void connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req,
-        boost::beast::http::response<boost::beast::http::string_body>& res, std::function<void()> callback);
+        void connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> callback);
+    };
+
+
+
+    void hook::hook_init(){
+
+        for(int i=0;i<this->url_pool.size();i++){
+            this->make_endpoints(this->url_pool.at(i));
+        };
+
+        this->get_active();
     };
 
 
@@ -106,29 +113,13 @@ class hook{
 
 
 
-    void hook::hook_init(){
-
-        for(int i=0;i<this->url_pool.size();i++){
-            this->make_endpoints(this->url_pool.at(i));
-        };
-
-        //this->connector(this->check);
-
-    };
-
-
-
 void hook::make_endpoints(domain_details endP_struct) {
 
         boost::asio::ip::tcp::resolver::results_type endpoint_pool = addr_resolver.resolve(endP_struct.host_url,endP_struct.port);
 
         if (endpoint_pool.empty()) {
 
-            cout<<"error resolving ip for the endpoint "<<endl;
-
-            // this->make_endpoints(endP_struct);
-
-            return;
+            cout<<"error resolving ip for the endpoint - "<<endP_struct.host_url<<endl;
 
         } else{
             
@@ -141,20 +132,29 @@ void hook::make_endpoints(domain_details endP_struct) {
             } else{
 
                 std::string new_id = i_d.get_id();
-                this->check=new_id;
 
                 this->servers.emplace(new_id, connection_data(std::move(endpoint_pool), endP_struct));
 
             };
 
         };
+};
+
+
+
+void hook::get_active(){
+
+    for(auto& [key,value]:servers){
+        if(!value.endP_resolver.empty()){
+            this->member_servers.push_back(key);
+        };
+    };
 
 };
 
 
 
-
-void hook::connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, boost::beast::http::response<boost::beast::http::string_body>& res, std::function<void()> callback){
+void hook::connector(std::string id,boost::beast::http::request<boost::beast::http::string_body>& req, std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> callback){
     boost::system::error_code ec;
     
      struct Con {
@@ -182,20 +182,15 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
 
         };
 
-
     };
 
     merge_req(state->con_req);
-
-    boost::asio::ip::tcp::endpoint endP = this->select_endP(servers[id].endP_resolver, servers[id].domain);
-
-    cout<<"endpoint - "<<endP<<endl;
 
     state->stream_socket.expires_after(std::chrono::seconds(30));
 
     try {
         state->stream_socket.async_connect(
-            endP, [state, id,&res](boost::system::error_code ec) {
+            this->servers[id].endP_resolver, [state, id,callback=std::move(callback)](boost::system::error_code ec,boost::asio::ip::tcp::endpoint ep) {
                 if (!ec) {
                     std::cout << "Connected to server!" << std::endl;
 
@@ -203,44 +198,49 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
 
                     boost::beast::http::async_write(
                         state->stream_socket, state->con_req,
-                        [id, state,&res](boost::beast::error_code ec, size_t bytes_transferred) mutable {
+                        [id, state,callback=std::move(callback)](boost::beast::error_code ec, size_t bytes_transferred) mutable {
                             boost::ignore_unused(bytes_transferred);
 
                             if (!ec) {
 
                                 state->read_buffer.clear();
 
-                                // error is being raised from this snippet
+                                
                                 boost::beast::http::async_read(
                                     state->stream_socket, state->read_buffer, state->con_res,
-                                    [state, id,&res](boost::beast::error_code ec, size_t transfered_size) mutable {
+                                    [state, id,callback=std::move(callback)](boost::beast::error_code ec, size_t transfered_size) mutable {
                                         boost::ignore_unused(transfered_size);
 
                                         if (ec) {
                                             cout<<"error reading from remote Server - "<<ec.message()<<endl;
                                         };
 
-                                            auto merge_res=[&res](boost::beast::http::response<boost::beast::http::string_body>& state_res){
-                                                    res.version(state_res.version());
-                                                    res.body()=state_res.body();
+                                                if(callback){
+                                                        try{
+                                                            
+                                                            auto res_send=std::move(state->con_res);
+
+                                                            callback(res_send);
+
+                                                        } catch(const std::exception& e){
+                                                            cout<<"Error with write Callback - "<<e.what()<<endl;
+                                                        };
+                                                    };
+
+                                            if (state->con_res.need_eof()) {
+
+                                                boost::beast::error_code shutdown_ec;
+
+                                                state->stream_socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send,
+                                                                                    shutdown_ec);
+
+                                                if (shutdown_ec) {
+                                                    std::cout << "Error shutting down: " << shutdown_ec.message()
+                                                            << std::endl;
+                                                }
                                             };
 
-                                            merge_res(state->con_res);
-
                                     });
-
-                                if (state->con_req.need_eof()) {
-
-                                    boost::beast::error_code shutdown_ec;
-
-                                    state->stream_socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send,
-                                                                           shutdown_ec);
-
-                                    if (shutdown_ec) {
-                                        std::cout << "Error shutting down: " << shutdown_ec.message()
-                                                  << std::endl;
-                                    }
-                                };
 
                             } else {
                                 std::cout << "Error writing: " << ec.message() << std::endl;
@@ -253,39 +253,9 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
                 }
             });
     } catch (std::exception const& e) {
-        std::cout << "Error with read and write: " << e.what() << std::endl;
+        std::cout << "Error with Endpoint connection : " << e.what() << std::endl;
     };
-    
 
-    if(callback){
-        try{
-
-            callback();
-
-        } catch(const std::exception& e){
-            cout<<"Error with write Callback - "<<e.what()<<endl;
-        }
-    }
-
-};
-
-
-
-
-boost::asio::ip::tcp::endpoint hook::select_endP(boost::asio::ip::tcp::resolver::results_type endpoint_pool,domain_details domain){
-    boost::asio::ip::tcp::endpoint to_return;
-
-    // if(endpoint_pool.empty()){
-    //     this->make_endpoints(domain);
-    // } else{
-    //     to_return=*endpoint_pool.begin();
-    // };
-
-    // endpoint_pool.erase(endpoint_pool.begin());
-
-    to_return=*endpoint_pool.begin();
-
-    return to_return;
 };
 
 
@@ -318,7 +288,13 @@ void hook::limit_check(){
 std::string hook::round_robin(){
     std::lock_guard<std::mutex> locker(mtx);
 
-    return this->check;
+    this->current_server_pos+=1;
+
+    if(this->current_server_pos >= this->member_servers.size()){
+        this->current_server_pos=0;
+    };
+
+    return this->member_servers.at(this->current_server_pos);
 };
 
 
@@ -327,4 +303,4 @@ std::string hook::least_connection(){
     std::lock_guard<std::mutex> locker(mtx);
 
     return "the fuck";
-}
+};

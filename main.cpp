@@ -15,8 +15,8 @@ public:
     bool server_status();
 
 
-    server_operations(boost::asio::io_context& context,std::vector<domain_details> endpoint_url,boost::asio::ssl::context& ssl_context)
-    : server(context,endpoint_url,ssl_context) {};
+    server_operations(boost::asio::io_context& context,std::vector<domain_details> endpoint_url,boost::asio::ssl::context& ssl_context,std::string algo)
+    : server(context,endpoint_url,ssl_context,algo) {};
 
 private:
     server_engine server;
@@ -55,6 +55,8 @@ int main(){
 
     domain_details beryl_id_engine={"localhost","8080"};
 
+    std::string traffic_algo="round_robin";
+
     std::vector<domain_details> endpoint;
 
     endpoint.push_back(beryl_id_engine);
@@ -63,7 +65,7 @@ int main(){
 
     boost::asio::ssl::context ssl(boost::asio::ssl::context::tlsv12_client);
 
-    server_operations server_constructor(context,endpoint,ssl);
+    server_operations server_constructor(context,endpoint,ssl,traffic_algo);
 
     server_constructor.start_server(engine_domain);
 

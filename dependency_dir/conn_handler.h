@@ -19,6 +19,7 @@ using namespace std;
 
 class server_engine{
 private:
+    std::string algo;
     rewriter url_resolver;
     hook endPHook;
     boost::asio::io_context& ioc;
@@ -31,8 +32,8 @@ private:
     void handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket,boost::asio::yield_context yield);
 
 public:
-    server_engine(boost::asio::io_context& context,std::vector<domain_details> endpoint_url,boost::asio::ssl::context& ssl_context)
-    : ioc(context),endpoint_resolver(context), con_acceptor(context), isOpen(false), url_resolver(),endPHook(context,endpoint_url,ssl_context) {
+    server_engine(boost::asio::io_context& context,std::vector<domain_details> endpoint_url,boost::asio::ssl::context& ssl_context,std::string alg)
+    : ioc(context),endpoint_resolver(context), con_acceptor(context), isOpen(false), url_resolver(),endPHook(context,endpoint_url,ssl_context),algo(alg) {
         
         try{
             endPHook.hook_init();
@@ -152,40 +153,51 @@ void server_engine::handler(std::shared_ptr<boost::asio::ip::tcp::socket> socket
 
             boost::beast::http::async_read(stream_socket,buffer,req,yield);
 
-            this->url_resolver.req_resolve(req,res);
+            this->url_resolver.req_resolve(req);
 
-            this->endPHook.connector(this->endPHook.overide_server("round_robin"),req,res,[&](){
+            this->endPHook.connector(this->endPHook.overide_server(this->algo),req,[&](boost::beast::http::response<boost::beast::http::string_body> con_res){
 
-                res.keep_alive();
+                auto merge_res=[&res](boost::beast::http::response<boost::beast::http::string_body> state_res){
+                                                    res.version(state_res.version());
+                                                    res.body()=state_res.body();
+                                            };
 
-                res.prepare_payload();
+                        merge_res(con_res);
 
-                boost::beast::http::async_write(stream_socket,res,yield);
+                        res.keep_alive();
+
+                        res.prepare_payload();
+
+                        boost::beast::http::async_write(stream_socket,res,[&](boost::beast::error_code ec,std::size_t size){
+                            if(ec){
+                                cout<<"Error Writing"<<endl;
+                                isDisconnected=true;
+                            } else{
+
+                                if (res.need_eof()) {
+                                
+                                boost::beast::error_code shutdown_ec;
+
+                                stream_socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, shutdown_ec);
+
+                                isDisconnected = true;
+
+                                if (shutdown_ec) {
+                                    cout << "Error shutting down: " << shutdown_ec.message() << endl;
+                                };
+
+                                };
+                            };
+
+                        });
 
             });
 
-            if (req.need_eof()) {
-cout<<"response - "<<res.body()<<endl;
-                boost::beast::error_code shutdown_ec;
-
-                stream_socket.socket().shutdown(boost::asio::ip::tcp::socket::shutdown_send, shutdown_ec);
-
-                isDisconnected = true;
-
-                if (shutdown_ec) {
-                    cout << "Error shutting down: " << shutdown_ec.message() << endl;
-                }
-
-                break;
-            };
-
-            cout<<"response from endpoint server - "<<res.body()<<endl;
-
         } catch(const std::exception e){
 
-            cout<<"error reading and writing"<<endl;
+            cout<<"End of Stream - "<<e.what()<<endl;
 
-            cout<<e.what()<<endl;
+            break;
 
         };
 
@@ -196,4 +208,4 @@ cout<<"response - "<<res.body()<<endl;
         };
 
     };
-}
+};
