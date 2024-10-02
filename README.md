@@ -10,3 +10,5 @@ nlohmann_json for json handling
 openSSL for sockets
 
 //dependencies specified within CMakeLists.txt
+
+URL rewriting can be done in ./dependency_dir/rewriter.h
