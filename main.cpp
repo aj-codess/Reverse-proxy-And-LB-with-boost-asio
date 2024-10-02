@@ -50,11 +50,14 @@ bool server_operations::server_status(){
 
 
 int main(){
-
+    //proxy domain address
     domain_details engine_domain = { "localhost", "8888" };
 
+    //endpoint server domain
     domain_details beryl_id_engine={"localhost","8080"};
 
+
+    //algo
     std::string traffic_algo="round_robin";
 
     std::vector<domain_details> endpoint;

@@ -27,10 +27,10 @@
  struct connection_data {
     boost::asio::ip::tcp::resolver::results_type endP_resolver;
     domain_details domain;
-    int rating;
+    std::chrono::milliseconds::rep duration;
 
         connection_data() 
-        : rating(0) {}
+        : duration(0) {}
 
     // Constructor with parameters
     connection_data(boost::asio::ip::tcp::resolver::results_type resolver, domain_details dmn)
@@ -58,12 +58,11 @@ class hook{
         ext_data check_existance(std::string url);
         std::map<std::string,connection_data> servers;
         id_gen i_d;
-        void limit_check();
         void get_active();
-        std::vector<std::string> member_servers;
-
+        std::vector<std::string> active_servers;
         std::string round_robin();
         std::string least_connection();
+        void ping(std::vector<std::string> active_svr);
 
     public:
 
@@ -90,6 +89,8 @@ class hook{
         };
 
         this->get_active();
+
+        //this->ping(this->active_servers);
     };
 
 
@@ -146,7 +147,7 @@ void hook::get_active(){
 
     for(auto& [key,value]:servers){
         if(!value.endP_resolver.empty()){
-            this->member_servers.push_back(key);
+            this->active_servers.push_back(key);
         };
     };
 
@@ -214,18 +215,7 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
                                         if (ec) {
                                             cout<<"error reading from remote Server - "<<ec.message()<<endl;
                                         };
-
-                                                if(callback){
-                                                        try{
-                                                            
-                                                            auto res_send=std::move(state->con_res);
-
-                                                            callback(res_send);
-
-                                                        } catch(const std::exception& e){
-                                                            cout<<"Error with write Callback - "<<e.what()<<endl;
-                                                        };
-                                                    };
+                                            
 
                                             if (state->con_res.need_eof()) {
 
@@ -239,6 +229,18 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
                                                             << std::endl;
                                                 }
                                             };
+
+                                            if(callback){
+                                                        try{
+                                                            
+                                                            auto res_send=std::move(state->con_res);
+
+                                                            callback(res_send);
+
+                                                        } catch(const std::exception& e){
+                                                            cout<<"Error with write Callback - "<<e.what()<<endl;
+                                                        };
+                                                    };
 
                                     });
 
@@ -260,6 +262,36 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
 
 
 
+void hook::ping(std::vector<std::string> active_svr){
+
+    auto def=[](boost::beast::http::response<boost::beast::http::string_body> res){};
+
+    boost::beast::http::request<boost::beast::http::string_body> req;
+
+    req.method(boost::beast::http::verb::head);
+
+    req.target("/");
+
+    req.version(11);
+
+    req.set(boost::beast::http::field::user_agent, "MyHTTPClient/1.0");
+
+    req.set(boost::beast::http::field::accept, "*/*");
+
+    req.set(boost::beast::http::field::connection, "close");
+
+    for(int i=0;i<active_svr.size();i++){
+        cout<<"Pinging...."<<endl;
+
+        req.set(boost::beast::http::field::host, this->servers[this->active_servers.at(i)].domain.host_url);
+
+        this->connector(this->active_servers.at(i),req,def);
+    };
+
+};
+
+
+
 std::string hook::overide_server(std::string algo){
     std::string id;
 
@@ -274,27 +306,16 @@ std::string hook::overide_server(std::string algo){
 
 
 
-void hook::limit_check(){
-
-    // if(num>std::numeric_limits<short>::max()-SAFETY){
-
-
-
-    // }
-};
-
-
-
 std::string hook::round_robin(){
     std::lock_guard<std::mutex> locker(mtx);
 
     this->current_server_pos+=1;
 
-    if(this->current_server_pos >= this->member_servers.size()){
+    if(this->current_server_pos >= this->active_servers.size()){
         this->current_server_pos=0;
     };
 
-    return this->member_servers.at(this->current_server_pos);
+    return this->active_servers.at(this->current_server_pos);
 };
 
 
@@ -302,5 +323,31 @@ std::string hook::round_robin(){
 std::string hook::least_connection(){
     std::lock_guard<std::mutex> locker(mtx);
 
-    return "the fuck";
+    bool start=false;
+
+    std::string captured_id;
+
+    std::chrono::milliseconds::rep captured_milli;
+
+    for(auto& [key,value]:servers){
+
+        if(start==true){
+            if(value.duration < captured_milli){
+                captured_id=key;
+
+                captured_milli=value.duration;
+            };
+        } else if(start==false){
+            start=true;
+
+            captured_id=key;
+
+            captured_milli=value.duration;
+        };
+
+    };
+
+    cout<<"Server's Latency - "<<servers[captured_id].duration<<endl;
+
+    return captured_id;
 };
