@@ -9,3 +9,4 @@ boost url
 nlohmann_json for json handling
 openSSL for sockets
 
+//dependencies specified within CMakeLists.txt
