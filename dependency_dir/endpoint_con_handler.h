@@ -173,6 +173,7 @@ void hook::connector(std::string id,boost::beast::http::request<boost::beast::ht
         state_req.method(req.method());
         state_req.target(req.target());
         state_req.version(req.version());
+        state_req.body()=req.body();
 
         auto host_field = req.find(boost::beast::http::field::host);
 
